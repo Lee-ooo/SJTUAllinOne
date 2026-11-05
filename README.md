@@ -119,3 +119,11 @@ app/src/main/java/dev/sjtu/allinone/
 ## 反馈与贡献
 
 欢迎通过 [Issues](https://github.com/Lee-ooo/SJTUAllinOne/issues) 报告问题，附上 Android 版本、复现步骤和脱敏日志；代码改动可提交 Pull Request。
+
+## 许可证
+
+Copyright (c) 2026 Lee-ooo
+
+本项目原创代码采用 [GNU General Public License v3.0](LICENSE)（SPDX：`GPL-3.0-only`）。你可以依照该许可证使用、修改和分发；分发修改版或二进制时，须遵守 GPL-3.0 的源码提供及许可证要求。本软件不提供任何担保，详见许可证全文。
+
+第三方依赖及工具文件仍遵循各自的许可证，原有版权声明予以保留。
