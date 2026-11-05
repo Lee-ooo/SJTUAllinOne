@@ -1,0 +1,44 @@
+*.iml
+# Local toolchains, caches and IDE settings
+.gradle/
+.kotlin/
+/.local/
+.idea/
+.vscode/
+local.properties
+.DS_Store
+/build/
+**/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# Local credentials and private exports
+.env
+.env.*
+!.env.example
+*.hprof
+
+# Private exports, logs and signing configuration
+*.pem
+*.p12
+*.pfx
+*.db
+*.sqlite
+*.sqlite3
+*.har
+*.log
+signing.properties
+
+# Retired development records and screenshots
+/HANDOVER.md
+/docs/local-development.md
+/docs/data-source-verification.md
+/docs/*validation*.md
+/docs/implementation-*.md
+/docs/reference/
+/docs/validation-*/
