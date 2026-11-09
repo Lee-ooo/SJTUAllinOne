@@ -65,12 +65,13 @@ class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels { MainViewModel.factory(application) }
     private val deepLinkCourse = mutableStateOf<String?>(null)
     private val deepLinkAssignment = mutableStateOf<String?>(null)
+    private var timetableRequests by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         readIntent(intent)
-        setContent { AppTheme { MainApp(viewModel, deepLinkCourse.value, deepLinkAssignment.value) } }
+        setContent { AppTheme { MainApp(viewModel, deepLinkCourse.value, deepLinkAssignment.value, timetableRequests) } }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -83,9 +84,15 @@ class MainActivity : ComponentActivity() {
         deepLinkCourse.value = intent.getStringExtra("courseId")
         deepLinkAssignment.value = intent.getStringExtra("assignmentId")
         if (deepLinkAssignment.value != null) deepLinkCourse.value = null
+        if (intent.action == ACTION_OPEN_TIMETABLE) timetableRequests++
     }
 
     companion object {
+        private const val ACTION_OPEN_TIMETABLE = "dev.sjtu.allinone.action.OPEN_TIMETABLE"
+
+        fun timetableIntent(context: Context) = Intent(context, MainActivity::class.java)
+            .setAction(ACTION_OPEN_TIMETABLE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+
         fun courseIntent(context: Context, id: String) = Intent(context, MainActivity::class.java)
             .putExtra("courseId", id).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         fun assignmentIntent(context: Context, id: String) = Intent(context, MainActivity::class.java)
@@ -95,10 +102,11 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainApp(viewModel: MainViewModel, initialCourseId: String?, initialAssignmentId: String?) {
+fun MainApp(viewModel: MainViewModel, initialCourseId: String?, initialAssignmentId: String?, timetableRequests: Int) {
     var tab by rememberSaveable { mutableIntStateOf(if (initialAssignmentId == null) 0 else 1) }
     LaunchedEffect(initialAssignmentId) { if (initialAssignmentId != null) tab = 1 }
     LaunchedEffect(initialCourseId) { if (initialCourseId != null) tab = 0 }
+    LaunchedEffect(timetableRequests) { if (timetableRequests > 0) tab = 0 }
     val operation by viewModel.operation.collectAsState()
     val syncStates by viewModel.syncStates.collectAsState()
     val snackbar = remember { SnackbarHostState() }

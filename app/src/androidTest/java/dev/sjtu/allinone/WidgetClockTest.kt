@@ -65,13 +65,13 @@ class WidgetClockTest {
                     assertTrue("Clock refresh timed out; schoolDate=${dev.sjtu.allinone.core.schoolToday()}", ready)
                 }
                 alarm.setTime(tomorrow.atTime(8, 10).atZone(SCHOOL_ZONE).toInstant().toEpochMilli())
-                await { view.findViewById<android.widget.ListView>(R.id.course_list)?.getChildAt(0)?.findViewById<TextView>(R.id.course_name)?.text == "次日课程" }
+                await { view.findViewById<android.widget.LinearLayout>(R.id.widget_course_rows)?.getChildAt(0)?.findViewById<TextView>(R.id.course_name)?.text == "次日课程" }
                 val dateLabel = "${tomorrow.monthValue}.${tomorrow.dayOfMonth}"
                 alarm.setTimeZone("Pacific/Honolulu")
                 await { view.findViewById<TextView>(R.id.widget_date)?.text?.startsWith(dateLabel) == true }
                 alarm.setTime(tomorrow.atTime(8, 21).atZone(SCHOOL_ZONE).toInstant().toEpochMilli())
                 await {
-                    view.findViewById<android.widget.ListView>(R.id.course_list)?.adapter?.count == 0 &&
+                    view.findViewById<android.widget.LinearLayout>(R.id.widget_course_rows)?.childCount == 0 &&
                         view.findViewById<TextView>(R.id.widget_empty)?.visibility == android.view.View.VISIBLE
                 }
             }

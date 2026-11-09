@@ -4,6 +4,9 @@ import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
+import android.graphics.Rect
+import android.os.SystemClock
+import android.view.MotionEvent
 import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
@@ -13,14 +16,14 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.Rule
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
-import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.assertIsDisplayed
 
 /** Exercises the real RemoteViews host, without changing the launcher. */
 class WidgetHostTest {
     @get:Rule val compose = createEmptyComposeRule()
 
-    @Test fun staleCoursesOverflowAndOpenDetails(): Unit = runBlocking {
+    @Test fun staleCoursesOverflowAndOpenTimetable(): Unit = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val container = (context.applicationContext as SJTUApplication).container
@@ -70,39 +73,39 @@ class WidgetHostTest {
                 }
                 CourseWidgetProvider.updateAll(context)
                 await {
-                    view.findViewById<android.widget.ListView>(R.id.course_list)?.let {
-                        it.adapter?.count == 1 && it.childCount >= 1
+                    view.findViewById<android.widget.LinearLayout>(R.id.widget_course_rows)?.let {
+                        it.childCount == 1
                     } == true
                 }
                 scenario.onActivity {
                     assertTrue(view.findViewById<TextView>(R.id.widget_status).text.contains("超过30天"))
                     assertEquals("还有 4 门课程", view.findViewById<TextView>(R.id.widget_overflow).text.toString())
                     assertEquals(android.view.View.VISIBLE, view.findViewById<TextView>(R.id.widget_overflow).visibility)
-                    val list = view.findViewById<android.widget.ListView>(R.id.course_list)
+                    val list = view.findViewById<android.widget.LinearLayout>(R.id.widget_course_rows)
                     assertEquals("组件课程1", list.getChildAt(0).findViewById<TextView>(R.id.course_name).text.toString())
                 }
                 scenario.onActivity { view.updateAppWidgetSize(null, 250, 480, 250, 480) }
-                await { (view.findViewById<android.widget.ListView>(R.id.course_list).adapter?.count ?: 0) > 1 }
+                await { view.findViewById<android.widget.LinearLayout>(R.id.widget_course_rows).childCount > 1 }
                 container.settings.saveWidget(id, dev.sjtu.allinone.data.WidgetSettings(dark = true, fontScale = 1.4f, upcomingOnly = true))
                 CourseWidgetProvider.updateAll(context)
                 val now = java.time.ZonedDateTime.now(dev.sjtu.allinone.core.SCHOOL_ZONE)
                 val remaining = courses.filter { dev.sjtu.allinone.core.sectionEnd(it.endSection) > now.hour * 60 + now.minute }
                 await {
-                    val list = view.findViewById<android.widget.ListView>(R.id.course_list)
-                    if (remaining.isEmpty()) list.adapter?.count == 0 else
+                    val list = view.findViewById<android.widget.LinearLayout>(R.id.widget_course_rows)
+                    if (remaining.isEmpty()) list.childCount == 0 else
                         list.getChildAt(0)?.findViewById<TextView>(R.id.course_name)?.text?.toString() == remaining.first().name
                 }
                 container.settings.saveWidget(id, dev.sjtu.allinone.data.WidgetSettings(dark = true, fontScale = 1.4f))
                 scenario.onActivity { view.updateAppWidgetSize(null, 250, 220, 250, 220) }
                 CourseWidgetProvider.updateAll(context)
                 await {
-                    val list = view.findViewById<android.widget.ListView>(R.id.course_list)
-                    list.adapter?.count == 1 && list.getChildAt(0)?.findViewById<TextView>(R.id.course_name)?.text?.toString() == courses.first().name &&
+                    val list = view.findViewById<android.widget.LinearLayout>(R.id.widget_course_rows)
+                    list.childCount == 1 && list.getChildAt(0)?.findViewById<TextView>(R.id.course_name)?.text?.toString() == courses.first().name &&
                         view.findViewById<TextView>(R.id.widget_overflow).text == "还有 4 门课程" &&
                         view.findViewById<TextView>(R.id.widget_overflow).visibility == android.view.View.VISIBLE
                 }
                 scenario.onActivity {
-                    val row = view.findViewById<android.widget.ListView>(R.id.course_list).getChildAt(0)
+                    val row = view.findViewById<android.widget.LinearLayout>(R.id.widget_course_rows).getChildAt(0)
                     listOf(row.findViewById<TextView>(R.id.course_time), view.findViewById<TextView>(R.id.widget_overflow)).forEach { text ->
                         val visible = android.graphics.Rect()
                         assertTrue(text.getGlobalVisibleRect(visible))
@@ -122,15 +125,15 @@ class WidgetHostTest {
                 CourseWidgetProvider.updateAll(context)
                 await {
                     view.findViewById<TextView>(R.id.widget_semester).visibility == android.view.View.GONE &&
-                        view.findViewById<android.widget.ListView>(R.id.course_list).adapter?.count == 1 &&
+                        view.findViewById<android.widget.LinearLayout>(R.id.widget_course_rows).childCount == 1 &&
                         view.findViewById<TextView>(R.id.widget_overflow).text == "还有 4 门课程" &&
-                        view.findViewById<android.widget.ListView>(R.id.course_list).getChildAt(0)?.findViewById<TextView>(R.id.course_meta)?.visibility == android.view.View.GONE
+                        view.findViewById<android.widget.LinearLayout>(R.id.widget_course_rows).getChildAt(0)?.findViewById<TextView>(R.id.course_meta)?.visibility == android.view.View.GONE
                 }
                 scenario.onActivity {
                     val info = manager.getAppWidgetInfo(id)
                     assertEquals(2, info.targetCellWidth)
                     assertEquals(2, info.targetCellHeight)
-                    val row = view.findViewById<android.widget.ListView>(R.id.course_list).getChildAt(0)
+                    val row = view.findViewById<android.widget.LinearLayout>(R.id.widget_course_rows).getChildAt(0)
                     assertEquals(android.view.View.GONE, row.findViewById<TextView>(R.id.course_meta).visibility)
                     listOf(row.findViewById<TextView>(R.id.course_name), row.findViewById<TextView>(R.id.course_time),
                         view.findViewById<TextView>(R.id.widget_overflow)).forEach { text ->
@@ -143,12 +146,19 @@ class WidgetHostTest {
                 java.io.File(context.getExternalFilesDir(null), "widget-2x2-test.png").outputStream().use {
                     instrumentation.uiAutomation.takeScreenshot().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
                 }
+                val courseBounds = Rect()
                 scenario.onActivity {
-                    val list = view.findViewById<android.widget.ListView>(R.id.course_list)
-                    assertTrue(list.performItemClick(list.getChildAt(0), 0, list.adapter.getItemId(0)))
+                    val rows = view.findViewById<android.widget.LinearLayout>(R.id.widget_course_rows)
+                    assertFalse(rows.getChildAt(0).isClickable)
+                    assertTrue(rows.getChildAt(0).getGlobalVisibleRect(courseBounds))
                 }
-                compose.onNodeWithText("来源：学在交大导入").assertIsDisplayed()
-                compose.onNodeWithText("地点：测试教室").assertIsDisplayed()
+                val downTime = SystemClock.uptimeMillis()
+                for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+                    val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action,
+                        courseBounds.exactCenterX(), courseBounds.exactCenterY(), 0)
+                    try { instrumentation.sendPointerSync(event) } finally { event.recycle() }
+                }
+                compose.onNodeWithContentDescription("课表设置").assertIsDisplayed()
             }
         } finally {
             host.stopListening()
