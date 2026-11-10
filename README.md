@@ -20,6 +20,8 @@
 3. 在作业、学业页面刷新数据；教室页面先刷新目录，再选择楼宇、日期和时间查询。
 4. 从系统桌面添加“今日课程”组件，并按需要调整样式与大小。
 
+应用启动时会定期检查新版，也可以在「账号与同步」里手动点击「检查更新」。发现新版后可在应用内下载，首次安装更新时需在 Android 设置里允许本应用安装未知应用。
+
 ## 从源码构建
 
 ### 方案一：Android Studio（推荐，Windows / macOS / Linux）
@@ -93,6 +95,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 使用 `adb` 前将 `<SDK>/platform-tools` 加入 `PATH`，或使用其完整路径。需要正式发布包时，在 Android Studio 中使用 **Build > Generate Signed Bundle / APK**，选择 **APK**、自己的签名密钥和 `release`；当前项目未配置发布签名，单独运行 `assembleRelease` 不会得到已签名的发布 APK。
+
+为现有 GitHub 下载用户发布更新时，沿用上一版 APK 的包名和签名，并递增 `versionCode`。在标签 `v<versionName>` 的 Release 中上传 `SJTUAllinOne-<versionName>.apk` 和 UTF-8 编码的 `update.json`。清单包含 APK 的 `packageName`、整数 `versionCode`、与标签对应的 `versionName`、APK 文件的 `sha256` 和可选的纯文本 `notes`。
 
 构建与签名操作可参考 [Android 官方构建说明](https://developer.android.com/build/build-for-release)，JDK 设置见 [Android 构建中的 Java 版本](https://developer.android.com/build/jdks)。
 

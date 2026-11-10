@@ -60,6 +60,7 @@ import dev.sjtu.allinone.ui.MainViewModel
 import dev.sjtu.allinone.ui.RoomScreen
 import dev.sjtu.allinone.ui.TimetableScreen
 import dev.sjtu.allinone.ui.formatDateTime
+import dev.sjtu.allinone.update.AppUpdateDialog
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels { MainViewModel.factory(application) }
@@ -116,6 +117,7 @@ fun MainApp(viewModel: MainViewModel, initialCourseId: String?, initialAssignmen
     val syncStates by viewModel.syncStates.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     var showSyncCenter by remember { mutableStateOf(false) }
+    var updateRequests by rememberSaveable { mutableIntStateOf(0) }
     var timetableSettingsExpanded by remember { mutableStateOf(false) }
     LaunchedEffect(tab) { if (tab != 0) timetableSettingsExpanded = false }
     val context = LocalContext.current
@@ -177,14 +179,17 @@ fun MainApp(viewModel: MainViewModel, initialCourseId: String?, initialAssignmen
         SyncCenterDialog(syncStates, onDismiss = { showSyncCenter = false },
             onSchoolLogin = { login(LoginActivity.SOURCE_SCHOOL) },
             onCanvasLogin = { login(LoginActivity.SOURCE_CANVAS) },
-            onLogout = { viewModel.logout(); showSyncCenter = false })
+            onLogout = { viewModel.logout(); showSyncCenter = false },
+            onCheckUpdate = { showSyncCenter = false; updateRequests++ })
     }
+    AppUpdateDialog(updateRequests)
 }
 
 @Composable
 private fun SyncCenterDialog(
     states: List<SyncStateEntity>, onDismiss: () -> Unit,
     onSchoolLogin: () -> Unit, onCanvasLogin: () -> Unit, onLogout: () -> Unit,
+    onCheckUpdate: () -> Unit,
 ) {
     var confirmLogout by remember { mutableStateOf(false) }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("账号与同步") },
@@ -214,6 +219,7 @@ private fun SyncCenterDialog(
                     TextButton(onClick = onCanvasLogin) { Text("Canvas 登录") }
                 }
                 TextButton(onClick = { confirmLogout = true }) { Text("退出并切换账号") }
+                TextButton(onClick = onCheckUpdate) { Text("检查更新") }
             }
         }, confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } })
     if (confirmLogout) {
