@@ -80,6 +80,21 @@ class RepositorySyncTest {
         assertEquals(123L, db.sync().get(account, "canvas")!!.lastSuccessAt)
     }
 
+    @Test fun `session probe marks only authentication failures and preserves last sync`(): Unit = runBlocking {
+        db.sync().save(SyncStateEntity(account, "canvas", 123L, null, "VALID"))
+        respond = { reply(it, "{}", 503) }
+        assertTrue(runCatching { repository.validateSession("canvas") }.exceptionOrNull() is RemoteException)
+        assertEquals("VALID", db.sync().get(account, "canvas")!!.authState)
+
+        respond = { reply(it, "{}", 401) }
+        assertTrue(runCatching { repository.validateSession("canvas") }.exceptionOrNull() is AuthRequiredException)
+        assertEquals("REQUIRED", db.sync().get(account, "canvas")!!.authState)
+
+        respond = { reply(it, "[]") }
+        repository.validateSession("canvas")
+        assertEquals(SyncStateEntity(account, "canvas", 123L, null, "VALID"), db.sync().get(account, "canvas"))
+    }
+
     @Test fun `authentication failure within one course requires login without deleting cached tasks`(): Unit = runBlocking {
         db.assignments().save(AssignmentEntity("cached", account, "canvas", "1", "课程", name = "缓存", updatedAt = 0))
         respond = { request ->

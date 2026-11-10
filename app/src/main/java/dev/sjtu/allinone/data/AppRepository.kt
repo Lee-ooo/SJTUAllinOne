@@ -37,15 +37,15 @@ class AppRepository(
     suspend fun validateSession(source: String) {
         val account = accountId()
         val sources = when (source) {
-            "school" -> {
-                schoolApi.validateSession()
-                listOf("timetable", "exams", "grades")
-            }
-            "canvas" -> {
-                canvasApi.validateSession()
-                listOf("canvas")
-            }
+            "school" -> listOf("timetable", "exams", "grades")
+            "canvas" -> listOf("canvas")
             else -> throw IllegalArgumentException("未知登录平台")
+        }
+        try {
+            if (source == "school") schoolApi.validateSession() else canvasApi.validateSession()
+        } catch (error: AuthRequiredException) {
+            db.withTransaction { sources.forEach { markError(account, it, error) } }
+            throw error
         }
         db.withTransaction {
             sources.forEach { name ->

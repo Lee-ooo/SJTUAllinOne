@@ -80,6 +80,11 @@ class MainActivity : ComponentActivity() {
         readIntent(intent)
     }
 
+    override fun onStart() {
+        super.onStart()
+        viewModel.refreshSavedSessions()
+    }
+
     private fun readIntent(intent: Intent) {
         deepLinkCourse.value = intent.getStringExtra("courseId")
         deepLinkAssignment.value = intent.getStringExtra("assignmentId")
@@ -118,7 +123,9 @@ fun MainApp(viewModel: MainViewModel, initialCourseId: String?, initialAssignmen
         ActivityResultContracts.StartActivityForResult(),
     ) { }
     fun login(source: String) {
-        loginLauncher.launch(Intent(context, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_SOURCE, source))
+        viewModel.openLogin {
+            loginLauncher.launch(Intent(context, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_SOURCE, source))
+        }
     }
     LaunchedEffect(operation.message) {
         operation.message?.let {

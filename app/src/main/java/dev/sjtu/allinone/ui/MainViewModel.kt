@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.sjtu.allinone.SJTUApplication
+import dev.sjtu.allinone.auth.refreshSavedSessions
 import dev.sjtu.allinone.background.ReminderScheduler
 import dev.sjtu.allinone.core.nowMillis
 import dev.sjtu.allinone.core.schoolToday
@@ -18,7 +19,10 @@ import dev.sjtu.allinone.domain.Course
 import dev.sjtu.allinone.widget.CourseWidgetProvider
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import kotlin.coroutines.resume
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,6 +31,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModel(private val app: Application) : ViewModel() {
@@ -176,10 +181,28 @@ class MainViewModel(private val app: Application) : ViewModel() {
     }
     fun loadRoomDetail(roomId: String) = runTask { repository.loadRoomDetail(roomId); null }
 
+    private var sessionRefresh: Job? = null
+
+    fun refreshSavedSessions() {
+        if (sessionRefresh?.isActive == true || operation.value.busy) return
+        sessionRefresh = viewModelScope.launch { container.refreshSavedSessions(app) }
+    }
+
+    fun openLogin(launchLogin: () -> Unit) {
+        viewModelScope.launch {
+            sessionRefresh?.cancelAndJoin()
+            launchLogin()
+        }
+    }
+
     fun logout() = runTask("已退出并清除本账号缓存") {
+        sessionRefresh?.cancelAndJoin()
         repository.switchAccount()
         ReminderScheduler.refresh(app, emptyList())
-        CookieManager.getInstance().removeAllCookies(null)
+        suspendCancellableCoroutine { continuation ->
+            CookieManager.getInstance().removeAllCookies { continuation.resume(Unit) }
+        }
+        CookieManager.getInstance().flush()
         CourseWidgetProvider.updateAll(app)
     }
 

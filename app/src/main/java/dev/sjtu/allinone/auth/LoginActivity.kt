@@ -1,12 +1,8 @@
 package dev.sjtu.allinone.auth
 
-import android.annotation.SuppressLint
 import android.app.Activity
 import android.os.Bundle
-import android.webkit.CookieManager
-import android.webkit.WebResourceRequest
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -20,7 +16,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -41,10 +36,8 @@ class LoginActivity : ComponentActivity() {
     private var validating by mutableStateOf(false)
     private var error by mutableStateOf<String?>(null)
 
-    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val startUrl = if (source == SOURCE_CANVAS) CANVAS_LOGIN else SCHOOL_LOGIN
         setContent {
             MaterialTheme {
                 Column(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -63,37 +56,13 @@ class LoginActivity : ComponentActivity() {
                     AndroidView(
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         factory = {
-                            WebView(context).also { view ->
+                            loginWebView(context, source,
+                                onBlocked = { error = "已阻止跳转到非学校登录页面" },
+                                onPlatformPage = { validateSession() },
+                            ).also { view ->
                                 webView = view
-                                view.settings.javaScriptEnabled = true
-                                view.settings.domStorageEnabled = true
-                                view.settings.allowFileAccess = false
-                                view.settings.allowContentAccess = false
-                                view.settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                                view.settings.safeBrowsingEnabled = true
-                                CookieManager.getInstance().setAcceptCookie(true)
-                                CookieManager.getInstance().setAcceptThirdPartyCookies(view, false)
-                                view.webViewClient = object : WebViewClient() {
-                                    override fun shouldOverrideUrlLoading(
-                                        view: WebView, request: WebResourceRequest,
-                                    ): Boolean {
-                                        val url = request.url
-                                        if (!request.isForMainFrame) return false
-                                        val trusted = url.scheme == "https" && url.host in TRUSTED_HOSTS
-                                        if (!trusted) error = "已阻止跳转到非学校登录页面"
-                                        return !trusted
-                                    }
-
-                                    override fun onPageFinished(view: WebView, url: String) {
-                                        super.onPageFinished(view, url)
-                                        val targetHost = if (source == SOURCE_CANVAS) "oc.sjtu.edu.cn" else "j.sjtu.edu.cn"
-                                        if (view.url?.startsWith("https://$targetHost/") == true) {
-                                            validateSession()
-                                        }
-                                    }
-                                }
                                 if (savedInstanceState == null || view.restoreState(savedInstanceState) == null) {
-                                    view.loadUrl(startUrl)
+                                    view.loadUrl(loginUrl(source))
                                 }
                             }
                         },
@@ -109,11 +78,7 @@ class LoginActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        webView?.let {
-            it.stopLoading()
-            it.webViewClient = WebViewClient()
-            it.destroy()
-        }
+        webView?.destroyLoginView()
         webView = null
         super.onDestroy()
     }
@@ -123,16 +88,9 @@ class LoginActivity : ComponentActivity() {
         val container = (application as SJTUApplication).container
         validating = true
         error = null
-        val targetUrl = sessionCookieUrl(source)
-        CookieManager.getInstance().flush()
-        val cookies = CookieManager.getInstance().getCookie(targetUrl)
         lifecycleScope.launch {
             try {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    if (source == SOURCE_CANVAS) container.canvasCookies.importWebView(cookies)
-                    else container.schoolCookies.importWebView(cookies)
-                }
-                container.repository.validateSession(source)
+                container.validateWebSession(source)
                 setResult(Activity.RESULT_OK)
                 Toast.makeText(this@LoginActivity, "登录验证成功", Toast.LENGTH_SHORT).show()
                 finish()
@@ -154,8 +112,5 @@ class LoginActivity : ComponentActivity() {
         const val EXTRA_SOURCE = "source"
         const val SOURCE_SCHOOL = "school"
         const val SOURCE_CANVAS = "canvas"
-        private const val SCHOOL_LOGIN = "https://j.sjtu.edu.cn/app/ui/index"
-        private const val CANVAS_LOGIN = "https://oc.sjtu.edu.cn/login/openid_connect"
-        private val TRUSTED_HOSTS = setOf("j.sjtu.edu.cn", "jaccount.sjtu.edu.cn", "oc.sjtu.edu.cn")
     }
 }

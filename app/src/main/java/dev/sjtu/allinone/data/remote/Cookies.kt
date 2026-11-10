@@ -122,6 +122,8 @@ class SessionCookieJar(
         saveFromResponse(baseUrl, imported)
     }
 
+    @Synchronized fun hasStoredCookies(): Boolean = store.read(storageKey()).isNotEmpty()
+
     @Synchronized fun clear(accountId: String) = store.clear("${accountId}:${source}:")
     private fun storageKey() = "${accountId()}:${source}:$host"
 }
