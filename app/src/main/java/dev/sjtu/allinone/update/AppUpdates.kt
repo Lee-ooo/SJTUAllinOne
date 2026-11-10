@@ -21,6 +21,8 @@ import okhttp3.Request
 
 private const val RELEASES = "https://github.com/Lee-ooo/SJTUAllinOne/releases"
 private const val MAX_APK_BYTES = 100L * 1024 * 1024
+private val VERSION = Regex("[0-9]+\\.[0-9]+\\.[0-9]+")
+private val SHA256 = Regex("[0-9a-fA-F]{64}")
 
 @Serializable
 internal data class AppUpdate(
@@ -37,10 +39,6 @@ internal data class AppUpdate(
         packageName == installedPackage && versionCode > installedVersion &&
             VERSION.matches(versionName) && SHA256.matches(sha256)
 
-    private companion object {
-        val VERSION = Regex("[0-9]+\\.[0-9]+\\.[0-9]+")
-        val SHA256 = Regex("[0-9a-fA-F]{64}")
-    }
 }
 
 internal object AppUpdates {
@@ -65,7 +63,7 @@ internal object AppUpdates {
             if (!response.isSuccessful || body.source().request(32 * 1024L)) {
                 throw IOException("无法读取更新清单")
             }
-            json.decodeFromString<AppUpdate>(body.string())
+            json.decodeFromString(AppUpdate.serializer(), body.string())
         }
         val installed = context.packageManager.getPackageInfo(context.packageName, 0)
         update.takeIf {

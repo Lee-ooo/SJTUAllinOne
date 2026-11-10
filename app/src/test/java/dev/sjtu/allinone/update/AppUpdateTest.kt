@@ -10,7 +10,8 @@ class AppUpdateTest {
     @Test
     fun updateRequiresNewerVersionOfSamePackageAndValidMetadata() {
         val packageName = "dev.sjtu.allinone.debug"
-        val update = Json.decodeFromString<AppUpdate>(
+        val update = Json.decodeFromString(
+            AppUpdate.serializer(),
             """{"versionCode":3,"versionName":"0.1.2","packageName":"$packageName","sha256":"${"a".repeat(64)}"}""",
         )
         assertTrue(update.isNewerThan(packageName, 2))
