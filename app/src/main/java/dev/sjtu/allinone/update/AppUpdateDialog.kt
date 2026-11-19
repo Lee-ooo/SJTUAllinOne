@@ -71,7 +71,9 @@ internal fun AppUpdateDialog(requests: Int) {
             message = "正在检查更新…"
         }
         try {
-            update = AppUpdates.check(context)
+            val available = AppUpdates.check(context)
+            apkPath = available?.let { AppUpdates.cachedApk(context, it)?.path }
+            update = available
             preferences.edit().putLong("last_check", now).apply()
             message = if (manual && update == null) "当前已是最新版本。" else null
         } catch (error: CancellationException) {

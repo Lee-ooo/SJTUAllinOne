@@ -9,9 +9,12 @@ import androidx.core.content.FileProvider
 import androidx.core.content.pm.PackageInfoCompat
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -71,44 +74,33 @@ internal object AppUpdates {
         }
     }
 
-    @Suppress("DEPRECATION")
+    suspend fun cachedApk(context: Context, update: AppUpdate): File? = withContext(Dispatchers.IO) {
+        val apk = apkFile(context, update)
+        if (!apk.isFile) return@withContext null
+        try {
+            val hash = apk.inputStream().use { hashApk(it) }
+            verifyApk(context, update, apk, hash)
+            apk
+        } catch (_: IOException) {
+            null
+        }
+    }
+
     suspend fun download(context: Context, update: AppUpdate): File = withContext(Dispatchers.IO) {
-        val directory = File(context.cacheDir, "updates").apply { mkdirs() }
+        val target = apkFile(context, update)
+        val directory = target.parentFile!!.apply { mkdirs() }
         val partial = File.createTempFile("update-", ".apk", context.cacheDir)
         try {
             val request = Request.Builder().url(update.downloadUrl).build()
-            val digest = MessageDigest.getInstance("SHA-256")
-            client.newCall(request).execute().use { response ->
+            val hash = client.newCall(request).execute().use { response ->
                 val body = response.body ?: throw IOException("下载文件为空")
                 if (!response.isSuccessful) throw IOException("APK 下载失败")
                 body.byteStream().use { input ->
-                    partial.outputStream().use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        var total = 0L
-                        while (true) {
-                            ensureActive()
-                            val count = input.read(buffer)
-                            if (count == -1) break
-                            total += count
-                            if (total > MAX_APK_BYTES) throw IOException("APK 超出大小限制")
-                            digest.update(buffer, 0, count)
-                            output.write(buffer, 0, count)
-                        }
-                    }
+                    partial.outputStream().use { output -> hashApk(input, output) }
                 }
             }
-            val hash = digest.digest().joinToString("") { "%02x".format(it) }
-            if (!hash.equals(update.sha256, ignoreCase = true)) throw IOException("APK 校验失败")
-            val manager = context.packageManager
-            val installed = manager.getPackageInfo(context.packageName, signatureFlag)
-            val apk = manager.getPackageArchiveInfo(partial.path, signatureFlag)
-            if (apk == null || apk.packageName != installed.packageName ||
-                PackageInfoCompat.getLongVersionCode(apk) != update.versionCode ||
-                update.versionCode <= PackageInfoCompat.getLongVersionCode(installed) ||
-                signers(installed).isEmpty() || signers(apk) != signers(installed)
-            ) throw IOException("APK 与当前应用的包名、版本或签名不匹配")
+            verifyApk(context, update, partial, hash)
             ensureActive()
-            val target = File(directory, "update-${update.versionCode}.apk")
             if (!partial.renameTo(target)) throw IOException("无法保存 APK")
             directory.listFiles()?.filter { it != target }?.forEach { it.delete() }
             target
@@ -122,6 +114,40 @@ internal object AppUpdates {
         return Intent(Intent.ACTION_VIEW)
             .setDataAndType(uri, "application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    private fun apkFile(context: Context, update: AppUpdate) =
+        File(context.cacheDir, "updates/update-${update.versionCode}.apk")
+
+    private suspend fun hashApk(input: InputStream, output: OutputStream? = null): String {
+        val coroutineContext = currentCoroutineContext()
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(64 * 1024)
+        var total = 0L
+        while (true) {
+            coroutineContext.ensureActive()
+            val count = input.read(buffer)
+            if (count == -1) break
+            total += count
+            if (total > MAX_APK_BYTES) throw IOException("APK 超出大小限制")
+            digest.update(buffer, 0, count)
+            output?.write(buffer, 0, count)
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun verifyApk(context: Context, update: AppUpdate, file: File, hash: String) {
+        if (!hash.equals(update.sha256, ignoreCase = true)) throw IOException("APK 校验失败")
+        val manager = context.packageManager
+        val installed = manager.getPackageInfo(context.packageName, signatureFlag)
+        val apk = manager.getPackageArchiveInfo(file.path, signatureFlag)
+        val installedSigners = signers(installed)
+        if (apk == null || apk.packageName != installed.packageName ||
+            PackageInfoCompat.getLongVersionCode(apk) != update.versionCode ||
+            update.versionCode <= PackageInfoCompat.getLongVersionCode(installed) ||
+            installedSigners.isEmpty() || signers(apk) != installedSigners
+        ) throw IOException("APK 与当前应用的包名、版本或签名不匹配")
     }
 
     @Suppress("DEPRECATION")
