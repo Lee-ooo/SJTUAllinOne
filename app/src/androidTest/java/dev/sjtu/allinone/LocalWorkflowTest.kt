@@ -4,6 +4,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -21,6 +22,10 @@ class LocalWorkflowTest {
         }
         try {
             compose.onAllNodesWithText("作业").onLast().performClick()
+            val pending = compose.onNodeWithText("待完成").assertIsSelected().getUnclippedBoundsInRoot()
+            val done = compose.onNodeWithText("已完成").getUnclippedBoundsInRoot()
+            val all = compose.onNodeWithText("全部").getUnclippedBoundsInRoot()
+            assertTrue(pending.left < done.left && done.left < all.left)
             compose.onNodeWithText("按课程").performClick()
             compose.waitUntil(10_000) {
                 compose.onAllNodesWithText("测试分类甲").fetchSemanticsNodes().isNotEmpty()
@@ -37,6 +42,9 @@ class LocalWorkflowTest {
             compose.onNodeWithText("测试任务甲").assertIsDisplayed()
             compose.onNodeWithText("测试任务乙").assertDoesNotExist()
             compose.activityRule.scenario.recreate()
+            compose.onNodeWithText("待完成").assertIsSelected()
+            compose.onNodeWithText("测试任务甲").assertDoesNotExist()
+            compose.onNodeWithText("已完成").performClick()
             compose.onNodeWithText("测试任务甲").performClick()
             compose.onNode(isToggleable()).assertIsOn()
             compose.onNodeWithText("完成状态回归").assertExists()

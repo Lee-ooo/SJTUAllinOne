@@ -61,13 +61,13 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 private enum class ViewMode { DDL, COURSE }
-private enum class DoneFilter { ALL, PENDING, DONE }
+private enum class DoneFilter { PENDING, DONE, ALL }
 
 @Composable
 fun AssignmentScreen(viewModel: MainViewModel, initialAssignmentId: String?) {
     val assignments by viewModel.assignments.collectAsState()
     var mode by remember { mutableStateOf(ViewMode.DDL) }
-    var filter by remember { mutableStateOf(DoneFilter.ALL) }
+    var filter by remember { mutableStateOf(DoneFilter.PENDING) }
     var selected by remember { mutableStateOf<AssignmentEntity?>(null) }
     var adding by remember { mutableStateOf(false) }
     val now by rememberSchoolNow()
