@@ -1,5 +1,6 @@
 package dev.sjtu.allinone.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -73,6 +74,8 @@ data class AssignmentEntity(
     val notes: String = "",
     val reminderAt: Long? = null,
     val updatedAt: Long,
+    @ColumnInfo(defaultValue = "0") val hasDeadlineOverride: Boolean = false,
+    val canvasDueAt: Long? = null,
 )
 
 @Entity(tableName = "exams", indices = [Index("accountId", "year", "semester")])

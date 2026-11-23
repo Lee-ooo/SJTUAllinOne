@@ -8,7 +8,6 @@ import androidx.lifecycle.viewModelScope
 import dev.sjtu.allinone.SJTUApplication
 import dev.sjtu.allinone.auth.refreshSavedSessions
 import dev.sjtu.allinone.background.ReminderScheduler
-import dev.sjtu.allinone.core.nowMillis
 import dev.sjtu.allinone.core.schoolToday
 import dev.sjtu.allinone.data.local.AssignmentEntity
 import dev.sjtu.allinone.data.local.CourseEntity
@@ -16,6 +15,7 @@ import dev.sjtu.allinone.data.local.SemesterEntity
 import dev.sjtu.allinone.data.remote.AuthRequiredException
 import dev.sjtu.allinone.data.remote.TimetableSnapshot
 import dev.sjtu.allinone.domain.Course
+import dev.sjtu.allinone.domain.DeadlineEdit
 import dev.sjtu.allinone.widget.CourseWidgetProvider
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -151,9 +151,8 @@ class MainViewModel(private val app: Application) : ViewModel() {
         try { repository.syncAssignments() }
         finally { ReminderScheduler.refresh(app, container.db.assignments().allNow(container.activeAccount)) }
     }
-    fun saveAssignment(item: AssignmentEntity) = runTask("作业设置已保存") {
-        val updated = item.copy(updatedAt = nowMillis())
-        repository.saveAssignmentLocal(updated)
+    fun saveAssignment(item: AssignmentEntity, deadlineEdit: DeadlineEdit) = runTask("作业设置已保存") {
+        val updated = repository.saveAssignmentLocal(item, deadlineEdit)
         ReminderScheduler.schedule(app, updated)
     }
     fun newAssignment(name: String, course: String, dueAt: Long?, notes: String) = runTask("手动任务已添加") {

@@ -52,20 +52,28 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.sjtu.allinone.core.SCHOOL_ZONE
 import dev.sjtu.allinone.data.local.AssignmentEntity
+import dev.sjtu.allinone.domain.DeadlineEdit
 import dev.sjtu.allinone.domain.DeadlineGroup
 import dev.sjtu.allinone.domain.deadlineGroup
 import dev.sjtu.allinone.domain.isDone
 import dev.sjtu.allinone.domain.isPlatformSubmitted
-import java.time.Instant
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.time.format.ResolverStyle
 
 private enum class ViewMode { DDL, COURSE }
 private enum class DoneFilter { PENDING, DONE, ALL }
+private const val DEADLINE_LABEL = "截止时间（北京时间，可留空）"
+private val deadlineFormat = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm").withResolverStyle(ResolverStyle.STRICT)
+
+private fun parseDeadline(text: String): Long? = runCatching {
+    LocalDateTime.parse(text.trim(), deadlineFormat).atZone(SCHOOL_ZONE).toInstant().toEpochMilli()
+}.getOrNull()
 
 @Composable
 fun AssignmentScreen(viewModel: MainViewModel, initialAssignmentId: String?) {
     val assignments by viewModel.assignments.collectAsState()
+    val operation by viewModel.operation.collectAsState()
     var mode by remember { mutableStateOf(ViewMode.DDL) }
     var filter by remember { mutableStateOf(DoneFilter.PENDING) }
     var selected by remember { mutableStateOf<AssignmentEntity?>(null) }
@@ -105,9 +113,13 @@ fun AssignmentScreen(viewModel: MainViewModel, initialAssignmentId: String?) {
         }
     }
     selected?.let {
-        AssignmentDetailDialog(it, onDismiss = { selected = null }, onSave = { updated ->
-            viewModel.saveAssignment(updated); selected = null
-        }, onDelete = if (it.source == "local") {{ viewModel.deleteAssignment(it.id); selected = null }} else null)
+        AssignmentDetailDialog(it, savingEnabled = !operation.busy, onDismiss = { selected = null },
+            onSave = { updated, deadlineEdit ->
+                if (!viewModel.operation.value.busy) {
+                    viewModel.saveAssignment(updated, deadlineEdit)
+                    selected = null
+                }
+            }, onDelete = if (it.source == "local") {{ viewModel.deleteAssignment(it.id); selected = null }} else null)
     }
     if (adding) {
         NewAssignmentDialog(onDismiss = { adding = false }, onSave = { name, course, due, notes ->
@@ -186,11 +198,29 @@ private fun AssignmentCard(item: AssignmentEntity, onClick: (AssignmentEntity) -
 
 @Composable
 private fun AssignmentDetailDialog(
-    item: AssignmentEntity, onDismiss: () -> Unit, onSave: (AssignmentEntity) -> Unit, onDelete: (() -> Unit)?,
+    item: AssignmentEntity, savingEnabled: Boolean, onDismiss: () -> Unit,
+    onSave: (AssignmentEntity, DeadlineEdit) -> Unit, onDelete: (() -> Unit)?,
 ) {
     var completed by remember { mutableStateOf(item.localCompleted) }
     var notes by remember { mutableStateOf(item.notes) }
-    var reminder by remember { mutableStateOf(item.reminderAt) }
+    val originalDeadline = item.dueAt?.let(::formatDateTime).orEmpty()
+    var due by remember { mutableStateOf(originalDeadline) }
+    var followCanvas by remember { mutableStateOf(false) }
+    val canvasDeadline = if (item.hasDeadlineOverride) item.canvasDueAt else item.dueAt
+    val deadlineEdit = when {
+        followCanvas -> DeadlineEdit.CANVAS
+        due.trim() != originalDeadline -> DeadlineEdit.CUSTOM
+        else -> DeadlineEdit.KEEP
+    }
+    val deadline = when (deadlineEdit) {
+        DeadlineEdit.KEEP -> item.dueAt
+        DeadlineEdit.CUSTOM -> parseDeadline(due)
+        DeadlineEdit.CANVAS -> canvasDeadline
+    }
+    val invalidDeadline = due.isNotBlank() && deadline == null
+    var reminderOffset by remember {
+        mutableStateOf(item.dueAt?.let { dueAt -> item.reminderAt?.let { dueAt - it } })
+    }
     val context = LocalContext.current
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val plainDescription = remember(item.descriptionHtml) {
@@ -199,7 +229,24 @@ private fun AssignmentDetailDialog(
     AlertDialog(onDismissRequest = onDismiss, title = { Text(item.name) }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(item.courseName, fontWeight = FontWeight.SemiBold)
-            Text(item.dueAt?.let { "准确截止时间：${formatDateTime(it)}" } ?: "无截止时间")
+            OutlinedTextField(
+                value = due,
+                onValueChange = { due = it; followCanvas = false },
+                label = { Text(DEADLINE_LABEL) },
+                placeholder = { Text("YYYY-MM-DD HH:mm") },
+                singleLine = true,
+                isError = invalidDeadline,
+                supportingText = if (invalidDeadline) {{ Text("请输入有效的日期和时间，格式为 YYYY-MM-DD HH:mm") }} else null,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (item.source == "canvas" && !followCanvas &&
+                (item.hasDeadlineOverride || deadlineEdit == DeadlineEdit.CUSTOM)) {
+                Text(canvasDeadline?.let { "Canvas 截止时间：${formatDateTime(it)}" } ?: "Canvas 无截止时间")
+                TextButton(onClick = {
+                    due = canvasDeadline?.let(::formatDateTime).orEmpty()
+                    followCanvas = true
+                }) { Text("恢复 Canvas 截止时间") }
+            }
             if (item.isPlatformSubmitted()) {
                 Text("平台状态：${item.workflowState}${item.submittedAt?.let { " · ${formatDateTime(it)}" }.orEmpty()}")
             } else Text("平台状态：未提交（本地勾选不会提交到 Canvas）")
@@ -223,21 +270,22 @@ private fun AssignmentDetailDialog(
             OutlinedTextField(notes, { notes = it }, label = { Text("备注") }, modifier = Modifier.fillMaxWidth())
             Text("提醒（系统可能延迟，不承诺精确闹钟）", style = MaterialTheme.typography.labelMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(selected = reminder == null, onClick = { reminder = null }, label = { Text("无") })
-                FilterChip(selected = reminder != null && item.dueAt != null && reminder == item.dueAt!! - 3_600_000,
-                    onClick = { reminder = item.dueAt?.minus(3_600_000) }, enabled = item.dueAt != null,
+                FilterChip(selected = deadline == null || reminderOffset == null, onClick = { reminderOffset = null }, label = { Text("无") })
+                FilterChip(selected = deadline != null && reminderOffset == 3_600_000L,
+                    onClick = { reminderOffset = 3_600_000L }, enabled = deadline != null,
                     label = { Text("前1小时") })
-                FilterChip(selected = reminder != null && item.dueAt != null && reminder == item.dueAt!! - 86_400_000,
-                    onClick = { reminder = item.dueAt?.minus(86_400_000) }, enabled = item.dueAt != null,
+                FilterChip(selected = deadline != null && reminderOffset == 86_400_000L,
+                    onClick = { reminderOffset = 86_400_000L }, enabled = deadline != null,
                     label = { Text("前1天") })
             }
         }
     }, confirmButton = {
         Row {
             if (onDelete != null) TextButton(onClick = onDelete) { Text("删除") }
-            TextButton(onClick = {
+            TextButton(enabled = savingEnabled && !invalidDeadline, onClick = {
+                val reminder = reminderOffset?.let { deadline?.minus(it) }
                 if (reminder != null && Build.VERSION.SDK_INT >= 33) permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                onSave(item.copy(localCompleted = completed, notes = notes, reminderAt = reminder))
+                onSave(item.copy(dueAt = deadline, localCompleted = completed, notes = notes, reminderAt = reminder), deadlineEdit)
             }) { Text("保存") }
         }
     }, dismissButton = { TextButton(onClick = onDismiss) { Text("关闭") } })
@@ -254,14 +302,13 @@ private fun NewAssignmentDialog(onDismiss: () -> Unit, onSave: (String, String, 
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(name, { name = it }, label = { Text("任务名") })
             OutlinedTextField(course, { course = it }, label = { Text("课程/分类") })
-            OutlinedTextField(due, { due = it }, label = { Text("截止：YYYY-MM-DD HH:mm（可空）") })
+            OutlinedTextField(due, { due = it }, label = { Text(DEADLINE_LABEL) },
+                placeholder = { Text("YYYY-MM-DD HH:mm") }, singleLine = true)
             OutlinedTextField(notes, { notes = it }, label = { Text("备注") })
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
     }, confirmButton = { TextButton(onClick = {
-        val dueAt = if (due.isBlank()) null else runCatching {
-            LocalDateTime.parse(due, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")).atZone(SCHOOL_ZONE).toInstant().toEpochMilli()
-        }.getOrNull()
+        val dueAt = parseDeadline(due)
         if (name.isBlank()) error = "任务名不能为空"
         else if (due.isNotBlank() && dueAt == null) error = "截止时间格式无效"
         else onSave(name, course, dueAt, notes)

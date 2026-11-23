@@ -7,12 +7,23 @@ fun AssignmentEntity.isPlatformSubmitted(): Boolean =
 
 fun AssignmentEntity.isDone(): Boolean = localCompleted || isPlatformSubmitted() || excused
 
+enum class DeadlineEdit { KEEP, CUSTOM, CANVAS }
+
+fun AssignmentEntity.reminderForDeadline(deadline: Long?): Long? {
+    val reminder = reminderAt ?: return null
+    if (deadline == dueAt) return reminder
+    return if (deadline != null && dueAt != null) reminder + (deadline - dueAt) else null
+}
+
 fun AssignmentEntity.withLocalSettings(local: AssignmentEntity?): AssignmentEntity {
     if (local == null) return this
-    val reminder = when {
-        local.reminderAt == null || dueAt == null -> null
-        local.dueAt != null -> dueAt - (local.dueAt - local.reminderAt)
-        else -> null
-    }
-    return copy(localCompleted = local.localCompleted, notes = local.notes, reminderAt = reminder)
+    val deadline = if (local.hasDeadlineOverride) local.dueAt else dueAt
+    return copy(
+        dueAt = deadline,
+        hasDeadlineOverride = local.hasDeadlineOverride,
+        canvasDueAt = if (local.hasDeadlineOverride) dueAt else null,
+        localCompleted = local.localCompleted,
+        notes = local.notes,
+        reminderAt = deadline?.let { local.reminderForDeadline(it) },
+    )
 }

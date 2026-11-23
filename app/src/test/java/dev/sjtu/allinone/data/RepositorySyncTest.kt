@@ -3,6 +3,8 @@ package dev.sjtu.allinone.data
 import androidx.room.Room
 import dev.sjtu.allinone.data.local.*
 import dev.sjtu.allinone.data.remote.*
+import dev.sjtu.allinone.domain.DeadlineEdit
+import java.time.Instant
 import kotlinx.coroutines.runBlocking
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
@@ -78,6 +80,47 @@ class RepositorySyncTest {
         assertEquals(1, db.assignments().allNow(account).size)
         assertEquals("REQUIRED", db.sync().get(account, "canvas")!!.authState)
         assertEquals(123L, db.sync().get(account, "canvas")!!.lastSuccessAt)
+    }
+
+    @Test fun `Canvas refresh and local edits preserve the effective deadline and reminder`(): Unit = runBlocking {
+        val id = stableId(account, "canvas", "1", "10")
+        val originalDue = Instant.parse("2026-11-04T00:00:00Z").toEpochMilli()
+        val customDue = Instant.parse("2026-11-10T00:00:00Z").toEpochMilli()
+        val latestDue = Instant.parse("2026-11-05T00:00:00Z").toEpochMilli()
+        val hour = 3_600_000L
+        val original = AssignmentEntity(id, account, "canvas", "1", "课程", name = "旧名称",
+            dueAt = originalDue, updatedAt = 0)
+        db.assignments().save(original)
+        respond = { request ->
+            when (request.url.encodedPath) {
+                "/api/v1/courses" -> reply(request, """[{"id":1,"name":"课程"}]""")
+                "/api/v1/courses/1/assignments" -> {
+                    runBlocking {
+                        repository.saveAssignmentLocal(
+                            original.copy(dueAt = customDue, reminderAt = customDue - hour), DeadlineEdit.CUSTOM,
+                        )
+                    }
+                    reply(request, """[{"id":10,"name":"新名称","due_at":"2026-11-05T00:00:00Z"}]""")
+                }
+                else -> error("Unexpected path")
+            }
+        }
+        repository.syncAssignments()
+        val overridden = db.assignments().byId(account, id)!!
+        assertEquals(customDue, overridden.dueAt)
+        assertEquals(customDue - hour, overridden.reminderAt)
+        assertEquals(latestDue, overridden.canvasDueAt)
+        assertEquals("新名称", overridden.name)
+
+        val restored = repository.saveAssignmentLocal(overridden, DeadlineEdit.CANVAS)
+        assertFalse(restored.hasDeadlineOverride)
+        assertEquals(latestDue, restored.dueAt)
+        assertEquals(latestDue - hour, restored.reminderAt)
+
+        val cleared = repository.saveAssignmentLocal(restored.copy(dueAt = null), DeadlineEdit.CUSTOM)
+        assertTrue(cleared.hasDeadlineOverride)
+        assertNull(cleared.dueAt)
+        assertNull(cleared.reminderAt)
     }
 
     @Test fun `session probe marks only authentication failures and preserves last sync`(): Unit = runBlocking {

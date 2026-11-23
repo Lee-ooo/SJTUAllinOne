@@ -16,6 +16,8 @@ import dev.sjtu.allinone.data.remote.SchoolApi
 import dev.sjtu.allinone.data.remote.SessionCookieJar
 import dev.sjtu.allinone.data.remote.TimetableSnapshot
 import dev.sjtu.allinone.data.remote.stableId
+import dev.sjtu.allinone.domain.DeadlineEdit
+import dev.sjtu.allinone.domain.reminderForDeadline
 import dev.sjtu.allinone.domain.withLocalSettings
 import java.time.LocalDate
 import java.util.UUID
@@ -168,18 +170,17 @@ class AppRepository(
         val account = accountId()
         return try {
             val courses = canvasApi.fetchCourses()
-            val existing = db.assignments().allNow(account).associateBy { it.id }
             val failures = mutableListOf<Exception>()
             courses.chunked(3).forEach { chunk ->
                 supervisorScope {
                     chunk.map { course -> async {
                         try {
-                            val remote = canvasApi.fetchAssignments(account, course).map { item ->
-                                item.withLocalSettings(existing[item.id])
-                            }
+                            val remote = canvasApi.fetchAssignments(account, course)
                             db.withTransaction {
-                                db.assignments().deleteRemoteCourse(account, course.id)
-                                db.assignments().insert(remote)
+                                val assignments = db.assignments()
+                                val existing = assignments.remoteCourse(account, course.id).associateBy { it.id }
+                                assignments.deleteRemoteCourse(account, course.id)
+                                assignments.insert(remote.map { it.withLocalSettings(existing[it.id]) })
                             }
                             null
                         } catch (error: Exception) {
@@ -204,7 +205,32 @@ class AppRepository(
         }
     }
 
-    suspend fun saveAssignmentLocal(item: AssignmentEntity) = db.assignments().save(item)
+    suspend fun saveAssignmentLocal(item: AssignmentEntity, deadlineEdit: DeadlineEdit = DeadlineEdit.KEEP): AssignmentEntity =
+        db.withTransaction {
+            val assignments = db.assignments()
+            val current = requireNotNull(assignments.byId(accountId(), item.id)) { "作业已不存在" }
+            val canvasDueAt = if (current.hasDeadlineOverride) current.canvasDueAt else current.dueAt
+            val deadline = when (deadlineEdit) {
+                DeadlineEdit.KEEP -> current.dueAt
+                DeadlineEdit.CUSTOM -> item.dueAt
+                DeadlineEdit.CANVAS -> canvasDueAt
+            }
+            val hasOverride = current.source == "canvas" && when (deadlineEdit) {
+                DeadlineEdit.KEEP -> current.hasDeadlineOverride
+                DeadlineEdit.CUSTOM -> true
+                DeadlineEdit.CANVAS -> false
+            }
+            current.copy(
+                dueAt = deadline,
+                hasDeadlineOverride = hasOverride,
+                canvasDueAt = if (hasOverride) canvasDueAt else null,
+                localCompleted = item.localCompleted,
+                notes = item.notes,
+                reminderAt = if (deadlineEdit != DeadlineEdit.KEEP && deadline == null) null
+                    else item.reminderForDeadline(deadline),
+                updatedAt = nowMillis(),
+            ).also { assignments.save(it) }
+        }
 
     suspend fun newLocalAssignment(name: String, courseName: String, dueAt: Long?, notes: String): AssignmentEntity {
         require(name.isNotBlank()) { "任务名称不能为空" }

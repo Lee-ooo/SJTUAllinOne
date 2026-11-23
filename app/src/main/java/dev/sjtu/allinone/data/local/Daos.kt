@@ -85,6 +85,9 @@ interface AssignmentDao {
     @Query("SELECT * FROM assignments WHERE accountId=:accountId")
     suspend fun allNow(accountId: String): List<AssignmentEntity>
 
+    @Query("SELECT * FROM assignments WHERE accountId=:accountId AND courseId=:courseId AND source='canvas'")
+    suspend fun remoteCourse(accountId: String, courseId: String): List<AssignmentEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(items: List<AssignmentEntity>)
 
